@@ -2,7 +2,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
@@ -100,7 +99,6 @@ def load_issi_from_excel():
     df_raw = pd.read_excel(file_path, sheet_name=xls.sheet_names[0])
 
     tickers = []
-    # Mengambil kode saham dari kolom ke-2 (indeks 1) mulai baris ke-2 (setelah header)
     for val in df_raw.iloc[2:, 1].dropna():
       if isinstance(val, str) and len(val.strip()) <= 6:
         tickers.append(val.strip().upper())
@@ -229,7 +227,6 @@ st.markdown("<br>", unsafe_allow_html=True)
 @st.cache_data(ttl=300)
 def scan_red_to_green_stocks(tickers, min_target):
   results = []
-  # Menggunakan multi-threading atau loop untuk memindai daftar emiten ISSI
   for t in tickers:
     symbol = f"{t}.JK"
     try:
@@ -277,164 +274,4 @@ def scan_red_to_green_stocks(tickers, min_target):
 
       hist_volatility = (
           (high_s - low_s) / close_s
-      ).rolling(window=14).mean().iloc[-1] * 100
-      est_reversal_target = max(
-          change_today * -1.2 + hist_volatility * 1.5, min_target
-      )
-
-      if est_reversal_target < min_target:
-        continue
-
-      pivot = (h_today + l_today + c_today) / 3
-      support = (2 * pivot) - h_today
-      resistance = (2 * pivot) - l_today
-      target_besok = c_today * (1 + (min_target / 100))
-
-      results.append({
-          "Emiten": t,
-          "Harga (Rp)": f"{c_today:,.0f}",
-          "Chg Hari Ini": f"{change_today:+.2f}%",
-          "RSI (14)": round(rsi14, 1),
-          "Vol vs Avg5": f"{(v_today/vol_sma5):.2f}x"
-          if vol_sma5 > 0
-          else "1.0x",
-          "Support": f"{support:,.0f}",
-          "Target Besok (+6%+)": f"{target_besok:,.0f}",
-          "Potensi Reversal": f"+{est_reversal_target:.1f}%",
-          "Analisis Pola": (
-              "Merah Jenuh Jual & Pantulan Valid"
-              if jenuh_jual
-              else "Intraday Recovery Kuat"
-          ),
-          "RawChg": change_today,
-      })
-    except Exception:
-      continue
-
-  return sorted(results, key=lambda x: x["RawChg"])
-
-
-# --- 6. INISIALISASI SESSION STATE UNTUK KLIK KOTAK REKOMENDASI ---
-if "selected_emiten_target" not in st.session_state:
-  st.session_state.selected_emiten_target = None
-
-with st.spinner(
-    "Menganalisis data pasar saham ISSI real-time & mendeteksi pola volume"
-    " valid..."
-):
-  scanned_data = scan_red_to_green_stocks(tickers_list, min_potensi)
-
-# --- 7. KOTAK REKOMENDASI INTERAKTIF (SAHAM LAYAK BELI) ---
-st.markdown("### 🔥 Top Saham Layak Beli (Reversal Terkonfirmasi)")
-if scanned_data:
-  top_recoms = scanned_data[:3]
-
-  cols_rec = st.columns(len(top_recoms))
-  for idx, rec in enumerate(top_recoms):
-    with cols_rec[idx]:
-      st.markdown(
-          f"""
-            <div class="recommendation-box">
-                <h4 style="color: #ffffff; margin: 0;">🎯 {rec['Emiten']}</h4>
-                <p style="color: #d1fae5; font-size: 13px; margin: 4px 0;">
-                    <b>Harga:</b> Rp {rec['Harga (Rp)']}<br>
-                    <b>Potensi:</b> <span style="color: #fde047; font-weight: bold;">{rec['Potensi Reversal']}</span><br>
-                    <b>Alasan:</b> Koreksi sehat (RSI {rec['RSI (14)']}), didukung volume meningkat & pantulan support kuat.
-                </p>
-            </div>
-        """,
-          unsafe_allow_html=True,
-      )
-      if st.button(
-          f"👉 Analisis {rec['Emiten']}", key=f"btn_rec_{rec['Emiten']}"
-      ):
-        st.session_state.selected_emiten_target = rec["Emiten"]
-        st.rerun()
-else:
-  st.info(
-      "ℹ️ Belum ada emiten ISSI yang mencetak skor rekomendasi tertinggi"
-      " saat ini."
-  )
-
-st.markdown("---")
-
-# --- 8. TAMPILAN TABEL HASIL SCREENER ---
-st.markdown("### 📋 Daftar Lengkap Saham ISSI: Koreksi Merah Hari Ini")
-
-if scanned_data:
-  df_display = pd.DataFrame(scanned_data).drop(columns=["RawChg"])
-  st.dataframe(df_display, use_container_width=True, height=400)
-
-  st.markdown("---")
-  st.markdown("### 📊 Detail & Grafik Analisis Emiten Terpilih")
-
-  emiten_list = [item["Emiten"] for item in scanned_data]
-  default_idx = 0
-  if st.session_state.selected_emiten_target in emiten_list:
-    default_idx = emiten_list.index(st.session_state.selected_emiten_target)
-
-  selected_emiten = st.selectbox(
-      "Pilih Emiten untuk Melihat Grafik & Detail Setup:",
-      emiten_list,
-      index=default_idx,
-  )
-
-  if selected_emiten:
-    col_chart1, col_chart2 = st.columns([2, 1])
-
-    with col_chart1:
-      chart_df = yf.download(
-          f"{selected_emiten}.JK",
-          period="2mo",
-          interval="1d",
-          progress=False,
-          auto_adjust=False,
-      )
-      if isinstance(chart_df.columns, pd.MultiIndex):
-        chart_df.columns = chart_df.columns.get_level_values(0)
-
-      fig = go.Figure(
-          data=[
-              go.Candlestick(
-                  x=chart_df.index,
-                  open=chart_df["Open"],
-                  high=chart_df["High"],
-                  low=chart_df["Low"],
-                  close=chart_df["Close"],
-                  name="Candlestick",
-              )
-          ]
-      )
-      fig.update_layout(
-          template="plotly_dark",
-          title=f"Grafik Harian {selected_emiten}.JK",
-          height=400,
-          margin=dict(l=10, r=10, t=30, b=10),
-      )
-      st.plotly_chart(fig, use_container_width=True)
-
-    with col_chart2:
-      st.markdown(f"#### 💡 Panduan Eksekusi: `{selected_emiten}`")
-      st.info(
-          f"• **Kondisi Hari Ini:** Ditutup merah/koreksi sehat dengan volume"
-          f" meningkat.\n• **Strategi Masuk:** Cicil beli (*Buy on Weakness*) di"
-          f" area support pagi hari jika harga sempat melemah dulu.\n• **Target"
-          f" Pantulan:** Minimal kenaikan **+{min_potensi}%** pada perdagangan"
-          f" esok hari.\n• **Validitas Volume:** Volume akumulasi pembeli"
-          f" besar bertahan hingga sesi sore."
-      )
-
-      stockbit_url = f"https://stockbit.com/symbol/{selected_emiten}"
-      st.markdown(
-          f'<a href="{stockbit_url}" target="_blank"><button style="width:'
-          ' 100%; background-color: #10b981; color: white; border: none; padding:'
-          ' 10px; border-radius: 6px; font-weight: bold; cursor: pointer;'
-          ' margin-top: 10px;">🚀 Buka Trade di Stockbit</button></a>',
-          unsafe_allow_html=True,
-      )
-else:
-  st.warning(
-      "⚠️ Belum ada saham ISSI yang memenuhi kriteria ketat 'Merah Hari Ini"
-      " dengan Potensi Reversal Minimal 6%' saat ini. Coba sesuaikan filter"
-      " target minimal atau lakukan *Refresh* beberapa saat lagi."
-  )
+      ).rolling(window=14).mean().iloc[-1] * 10
