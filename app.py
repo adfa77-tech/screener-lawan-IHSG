@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
@@ -63,12 +64,13 @@ st.markdown(
         font-weight: bold;
         color: #eab308;
     }
-    .control-panel {
-        background-color: #0f172a;
-        border: 1px solid #1e293b;
-        padding: 20px;
+    .recommendation-box {
+        background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+        border: 2px solid #34d399;
+        padding: 18px;
         border-radius: 12px;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
     }
 </style>
 """,
@@ -167,7 +169,7 @@ def get_ihsg_data():
 ihsg_price, ihsg_change = get_ihsg_data()
 
 
-# --- 3. PANEL KONTROL DI HALAMAN UTAMA (PINDAHAN DARI SIDEBAR) ---
+# --- 3. PANEL KONTROL DI HALAMAN UTAMA ---
 st.markdown("### 🎛️ Panel Kontrol & Pengaturan Screener")
 col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
 
@@ -283,7 +285,6 @@ def scan_red_to_green_stocks(tickers, min_target):
 
       c_prev = float(close_s.iloc[-2])
 
-      # Perubahan harga hari ini (Harus Merah / Negatif)
       change_today = ((c_today - c_prev) / c_prev) * 100
       if change_today >= 0:
         intraday_recovery = (c_today > o_today) and (
@@ -295,7 +296,6 @@ def scan_red_to_green_stocks(tickers, min_target):
         intraday_recovery = (c_today > o_today) or (c_today >= l_today * 1.01)
 
       vol_sma5 = float(vol_s.rolling(window=5).mean().iloc[-1])
-      volume_meningkat = v_today >= (vol_sma5 * 1.15)
 
       delta = close_s.diff()
       gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -343,24 +343,70 @@ def scan_red_to_green_stocks(tickers, min_target):
   return sorted(results, key=lambda x: x["RawChg"])
 
 
-# --- 6. TAMPILAN TABEL HASIL SCREENER ---
-st.markdown("### 📋 Daftar Saham JII70: Koreksi Merah Hari Ini ➔ Reversal Besok")
+# --- 6. INISIALISASI SESSION STATE UNTUK KLIK KOTAK REKOMENDASI ---
+if "selected_emiten_target" not in st.session_state:
+  st.session_state.selected_emiten_target = None
 
 with st.spinner(
     "Menganalisis data pasar real-time & mendeteksi pola volume valid..."
 ):
   scanned_data = scan_red_to_green_stocks(tickers_list, min_potensi)
 
+# --- 7. KOTAK REKOMENDASI INTERAKTIF (SAHAM LAYAK BELI) ---
+st.markdown("### 🔥 Top Saham Layak Beli (Reversal Terkonfirmasi)")
+if scanned_data:
+  # Ambil top 3 rekomendasi terbaik berdasarkan potensi reversal
+  top_recoms = scanned_data[:3]
+
+  cols_rec = st.columns(len(top_recoms))
+  for idx, rec in enumerate(top_recoms):
+    with cols_rec[idx]:
+      st.markdown(
+          f"""
+            <div class="recommendation-box">
+                <h4 style="color: #ffffff; margin: 0;">🎯 {rec['Emiten']}</h4>
+                <p style="color: #d1fae5; font-size: 13px; margin: 4px 0;">
+                    <b>Harga:</b> Rp {rec['Harga (Rp)']}<br>
+                    <b>Potensi:</b> <span style="color: #fde047; font-weight: bold;">{rec['Potensi Reversal']}</span><br>
+                    <b>Alasan:</b> Koreksi sehat (RSI {rec['RSI (14)']}), didukung volume meningkat & pantulan support kuat.
+                </p>
+            </div>
+        """,
+          unsafe_allow_html=True,
+      )
+      # Tombol interaktif untuk langsung mengarahkan ke emiten tersebut
+      if st.button(
+          f"👉 Analisis {rec['Emiten']}", key=f"btn_rec_{rec['Emiten']}"
+      ):
+        st.session_state.selected_emiten_target = rec["Emiten"]
+        st.rerun()
+else:
+  st.info(
+      "ℹ️ Belum ada emiten yang mencetak skor rekomendasi tertinggi saat ini."
+  )
+
+st.markdown("---")
+
+# --- 8. TAMPILAN TABEL HASIL SCREENER ---
+st.markdown("### 📋 Daftar Lengkap Saham JII70: Koreksi Merah Hari Ini")
+
 if scanned_data:
   df_display = pd.DataFrame(scanned_data).drop(columns=["RawChg"])
-  st.dataframe(df_display, use_container_width=True, height=450)
+  st.dataframe(df_display, use_container_width=True, height=400)
 
   st.markdown("---")
   st.markdown("### 📊 Detail & Grafik Analisis Emiten Terpilih")
 
+  # Tentukan indeks default dari session state jika tombol kotak diklik
+  emiten_list = [item["Emiten"] for item in scanned_data]
+  default_idx = 0
+  if st.session_state.selected_emiten_target in emiten_list:
+    default_idx = emiten_list.index(st.session_state.selected_emiten_target)
+
   selected_emiten = st.selectbox(
       "Pilih Emiten untuk Melihat Grafik & Detail Setup:",
-      [item["Emiten"] for item in scanned_data],
+      emiten_list,
+      index=default_idx,
   )
 
   if selected_emiten:
