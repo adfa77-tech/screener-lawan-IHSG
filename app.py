@@ -33,7 +33,7 @@ st.markdown(
     .title-text {
         font-size: 34px;
         font-weight: 900;
-        color: #fca5a5 !important; /* Warna Merah Menyala Elegan */
+        color: #ef4444 !important; /* Warna Merah Menyala Elegan */
         letter-spacing: 1.5px;
         text-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
@@ -106,7 +106,7 @@ st.markdown(
     <div class="title-box">
         <div class="title-text">SAHAM MERAH BESOK HIJAU</div>
         <p style="color: #ecfdf5 !important; font-size: 15px; margin-top: 8px; font-weight: 600;">
-            Screener ISSI Profesional: Deteksi Saham Koreksi Sehat Menuju Reversal Potensi Minimal 6% (Full 579+ Emiten)
+            Screener ISSI Profesional: Deteksi Saham Koreksi Sehat Menuju Reversal Potensi Minimal 6% (Full Database ISSI)
         </p>
     </div>
 """,
@@ -114,25 +114,42 @@ st.markdown(
 )
 
 
-# --- 1. LOAD SELURUH 500+ TICKER ISSI DARI FILE EXCEL SECARA UTUH ---
+# --- 1. LOAD SELURUH 500+ TICKER ISSI DARI FILE EXCEL SECARA PRESISI ---
 @st.cache_data
 def load_issi_from_excel():
   file_path = "SAHAM ISSI.xlsx"
   tickers = []
   try:
     xls = pd.ExcelFile(file_path)
-    for sheet in xls.sheet_names:
-      df_raw = pd.read_excel(file_path, sheet_name=sheet)
-      # Membaca seluruh kolom dan mengambil kode saham valid
+    df_raw = pd.read_excel(file_path, sheet_name=xls.sheet_names[0])
+
+    # Membaca langsung dari kolom ke-2 (indeks 1) mulai baris indeks 2 ke bawah
+    for val in df_raw.iloc[2:, 1].dropna():
+      s_val = str(val).strip().upper()
+      if (
+          s_val
+          and s_val not in ["KODE", "NO.", "NAMA", "NAN"]
+          and not s_val.isdigit()
+          and len(s_val) <= 6
+      ):
+        tickers.append(s_val)
+
+    # Jika karena suatu hal kosong, pindai seluruh sel dalam dataframe
+    if not tickers:
       for col in df_raw.columns:
         for val in df_raw[col].dropna():
           s_val = str(val).strip().upper()
           if (
-              s_val
-              and s_val
-              not in ["KODE", "NO.", "NAMA", "UNNAMED: 0", "UNNAMED: 1", "NAN"]
+              len(s_val) <= 6
+              and s_val not in [
+                  "KODE",
+                  "NO.",
+                  "NAMA",
+                  "UNNAMED: 0",
+                  "UNNAMED: 1",
+                  "NAN",
+              ]
               and not s_val.isdigit()
-              and len(s_val) <= 6
           ):
             tickers.append(s_val)
   except Exception as e:
@@ -255,7 +272,7 @@ with m4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# --- 5. FUNGSI ANALISIS & SCREENING 500+ SAHAM ---
+# --- 5. FUNGSI ANALISIS & SCREENING SAHAM ---
 def analyze_single_stock(t, min_target, strict_mode=True):
   symbol = f"{t}.JK"
   try:
@@ -298,7 +315,6 @@ def analyze_single_stock(t, min_target, strict_mode=True):
     )
 
     if strict_mode:
-      # Saringan ketat untuk mode Reversal
       if change_today >= 0:
         intraday_recovery = (c_today > o_today) and (
             (c_today - l_today) / l_today > 0.015
@@ -335,7 +351,6 @@ def analyze_single_stock(t, min_target, strict_mode=True):
 @st.cache_data(ttl=300)
 def scan_stocks_fast(tickers, min_target, strict_mode):
   results = []
-  # Menggunakan multi-threading paralel agar pemindaian 579 saham selesai cepat
   with ThreadPoolExecutor(max_workers=20) as executor:
     futures = {
         executor.submit(
