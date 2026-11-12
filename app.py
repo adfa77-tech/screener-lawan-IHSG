@@ -83,7 +83,7 @@ st.markdown(
     <div class="title-box">
         <div class="title-text">SAHAM MERAH BESOK HIJAU</div>
         <p style="color: #065f46 !important; font-size: 15px; margin-top: 5px; font-weight: 600;">
-            Screener JII70: Deteksi Saham Merah Hari Ini Menuju Reversal Potensi Minimal 6% (Volume Valid & Jenuh Jual)
+            Screener ISSI: Deteksi Saham Merah Hari Ini Menuju Reversal Potensi Minimal 6% (Volume Valid & Jenuh Jual)
         </p>
     </div>
 """,
@@ -91,59 +91,29 @@ st.markdown(
 )
 
 
-# --- 1. LOAD DATA TICKER JII70 DARI FILE EXCEL ---
+# --- 1. LOAD DATA TICKER ISSI DARI FILE EXCEL ---
 @st.cache_data
-def load_jii70_from_excel():
-  file_path = "JII70 TICKER1.xlsx"
+def load_issi_from_excel():
+  file_path = "SAHAM ISSI.xlsx"
   try:
     xls = pd.ExcelFile(file_path)
     df_raw = pd.read_excel(file_path, sheet_name=xls.sheet_names[0])
 
     tickers = []
-    for col in df_raw.columns:
-      if isinstance(col, str) and len(col) <= 6 and col.upper() != "UNNAMED":
-        tickers.append(col.strip().upper())
-    for val in df_raw.iloc[:, 1].dropna():
+    # Mengambil kode saham dari kolom ke-2 (indeks 1) mulai baris ke-2 (setelah header)
+    for val in df_raw.iloc[2:, 1].dropna():
       if isinstance(val, str) and len(val.strip()) <= 6:
         tickers.append(val.strip().upper())
 
     tickers = sorted(list(set(tickers)))
     if not tickers:
-      tickers = [
-          "ACES",
-          "ADMR",
-          "ADRO",
-          "AKRA",
-          "ANTM",
-          "BRIS",
-          "ICBP",
-          "INDF",
-          "KLBF",
-          "MDKA",
-          "PGAS",
-          "PTBA",
-          "UNVR",
-      ]
+      tickers = ["ADRO", "ANTM", "PTBA", "INDF", "KLBF"]
     return tickers
   except Exception:
-    return [
-        "ACES",
-        "ADMR",
-        "ADRO",
-        "AKRA",
-        "ANTM",
-        "BRIS",
-        "ICBP",
-        "INDF",
-        "KLBF",
-        "MDKA",
-        "PGAS",
-        "PTBA",
-        "UNVR",
-    ]
+    return ["ADRO", "ANTM", "PTBA", "INDF", "KLBF"]
 
 
-tickers_list = load_jii70_from_excel()
+tickers_list = load_issi_from_excel()
 
 
 # --- 2. AMBIL DATA REAL-TIME IHSG (^JKSE) ---
@@ -218,10 +188,10 @@ with m1:
 
 with m2:
   st.markdown(
-      """
+      f"""
         <div class="metric-container">
-            <div class="metric-label">Total Pantauan JII70</div>
-            <div class="metric-value">70 Emiten</div>
+            <div class="metric-label">Total Pantauan ISSI</div>
+            <div class="metric-value">{len(tickers_list)} Emiten</div>
             <div class="metric-yellow">Sistem Aktif</div>
         </div>
     """,
@@ -259,6 +229,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 @st.cache_data(ttl=300)
 def scan_red_to_green_stocks(tickers, min_target):
   results = []
+  # Menggunakan multi-threading atau loop untuk memindai daftar emiten ISSI
   for t in tickers:
     symbol = f"{t}.JK"
     try:
@@ -348,14 +319,14 @@ if "selected_emiten_target" not in st.session_state:
   st.session_state.selected_emiten_target = None
 
 with st.spinner(
-    "Menganalisis data pasar real-time & mendeteksi pola volume valid..."
+    "Menganalisis data pasar saham ISSI real-time & mendeteksi pola volume"
+    " valid..."
 ):
   scanned_data = scan_red_to_green_stocks(tickers_list, min_potensi)
 
 # --- 7. KOTAK REKOMENDASI INTERAKTIF (SAHAM LAYAK BELI) ---
 st.markdown("### 🔥 Top Saham Layak Beli (Reversal Terkonfirmasi)")
 if scanned_data:
-  # Ambil top 3 rekomendasi terbaik berdasarkan potensi reversal
   top_recoms = scanned_data[:3]
 
   cols_rec = st.columns(len(top_recoms))
@@ -374,7 +345,6 @@ if scanned_data:
         """,
           unsafe_allow_html=True,
       )
-      # Tombol interaktif untuk langsung mengarahkan ke emiten tersebut
       if st.button(
           f"👉 Analisis {rec['Emiten']}", key=f"btn_rec_{rec['Emiten']}"
       ):
@@ -382,13 +352,14 @@ if scanned_data:
         st.rerun()
 else:
   st.info(
-      "ℹ️ Belum ada emiten yang mencetak skor rekomendasi tertinggi saat ini."
+      "ℹ️ Belum ada emiten ISSI yang mencetak skor rekomendasi tertinggi"
+      " saat ini."
   )
 
 st.markdown("---")
 
 # --- 8. TAMPILAN TABEL HASIL SCREENER ---
-st.markdown("### 📋 Daftar Lengkap Saham JII70: Koreksi Merah Hari Ini")
+st.markdown("### 📋 Daftar Lengkap Saham ISSI: Koreksi Merah Hari Ini")
 
 if scanned_data:
   df_display = pd.DataFrame(scanned_data).drop(columns=["RawChg"])
@@ -397,7 +368,6 @@ if scanned_data:
   st.markdown("---")
   st.markdown("### 📊 Detail & Grafik Analisis Emiten Terpilih")
 
-  # Tentukan indeks default dari session state jika tombol kotak diklik
   emiten_list = [item["Emiten"] for item in scanned_data]
   default_idx = 0
   if st.session_state.selected_emiten_target in emiten_list:
@@ -464,7 +434,7 @@ if scanned_data:
       )
 else:
   st.warning(
-      "⚠️ Belum ada saham JII70 yang memenuhi kriteria ketat 'Merah Hari Ini"
+      "⚠️ Belum ada saham ISSI yang memenuhi kriteria ketat 'Merah Hari Ini"
       " dengan Potensi Reversal Minimal 6%' saat ini. Coba sesuaikan filter"
       " target minimal atau lakukan *Refresh* beberapa saat lagi."
   )
