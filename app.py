@@ -6,71 +6,94 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# Konfigurasi Halaman Streamlit
+# ============================================================
+# KONFIGURASI HALAMAN STREAMLIT
+# ============================================================
 st.set_page_config(
     page_title="SAHAM MERAH BESOK HIJAU", page_icon="📈", layout="wide"
 )
 
-# Custom CSS untuk Judul Kotak Hijau Tulisan Merah dan Komponen Lainnya
+# Custom CSS - Desain Modern, Elegan, & Interaktif
 st.markdown(
     """
 <style>
+    .stApp {
+        background: linear-gradient(135deg, #090d16 0%, #111827 50%, #0f172a 100%);
+        color: #f8fafc;
+    }
     .title-box {
-        background-color: #d1fae5;
-        border: 2px solid #10b981;
-        padding: 20px;
-        border-radius: 12px;
+        background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+        border: 2px solid #34d399;
+        padding: 24px;
+        border-radius: 16px;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
+        box-shadow: 0 10px 25px rgba(16, 185, 129, 0.25);
+        margin-bottom: 25px;
     }
     .title-text {
-        font-size: 32px;
-        font-weight: bold;
-        color: #ef4444 !important; /* Warna Merah */
-        letter-spacing: 1px;
+        font-size: 34px;
+        font-weight: 900;
+        color: #fca5a5 !important; /* Warna Merah Menyala Elegan */
+        letter-spacing: 1.5px;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
     .metric-container {
-        background-color: #1e293b;
+        background: rgba(30, 41, 59, 0.7);
         border: 1px solid #334155;
-        padding: 20px;
-        border-radius: 12px;
+        padding: 18px;
+        border-radius: 14px;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
     }
     .metric-label {
-        font-size: 15px;
+        font-size: 13px;
         color: #94a3b8;
-        font-weight: 600;
-        margin-bottom: 5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+        letter-spacing: 0.5px;
     }
     .metric-value {
-        font-size: 26px;
-        font-weight: bold;
+        font-size: 24px;
+        font-weight: 800;
         color: #f8fafc;
     }
     .metric-delta-pos {
-        font-size: 16px;
-        font-weight: bold;
-        color: #22c55e;
+        font-size: 15px;
+        font-weight: 700;
+        color: #4ade80;
     }
     .metric-delta-neg {
-        font-size: 16px;
-        font-weight: bold;
-        color: #ef4444;
-    }
-    .metric-yellow {
-        font-size: 18px;
-        font-weight: bold;
-        color: #eab308;
+        font-size: 15px;
+        font-weight: 700;
+        color: #f87171;
     }
     .recommendation-box {
-        background: linear-gradient(135deg, #065f46 0%, #047857 100%);
-        border: 2px solid #34d399;
-        padding: 18px;
+        background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+        border: 1px solid #34d399;
+        padding: 16px;
         border-radius: 12px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
+        margin-bottom: 15px;
+        box-shadow: 0 6px 15px rgba(16, 185, 129, 0.15);
+        transition: transform 0.2s ease;
+    }
+    .recommendation-box:hover {
+        transform: translateY(-3px);
+    }
+    div.stButton > button {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        font-weight: bold;
+        border-radius: 8px;
+        border: none;
+        padding: 8px 16px;
+        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+        width: 100%;
+    }
+    div.stButton > button:hover {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        color: #ffffff;
     }
 </style>
 """,
@@ -82,8 +105,8 @@ st.markdown(
     """
     <div class="title-box">
         <div class="title-text">SAHAM MERAH BESOK HIJAU</div>
-        <p style="color: #065f46 !important; font-size: 15px; margin-top: 5px; font-weight: 600;">
-            Screener ISSI: Deteksi Saham Merah Hari Ini Menuju Reversal Potensi Minimal 6% (Volume Valid & Jenuh Jual)
+        <p style="color: #ecfdf5 !important; font-size: 15px; margin-top: 8px; font-weight: 600;">
+            Screener ISSI Profesional: Deteksi Saham Koreksi Sehat Menuju Reversal Potensi Minimal 6% (Full 579+ Emiten)
         </p>
     </div>
 """,
@@ -91,38 +114,34 @@ st.markdown(
 )
 
 
-# --- 1. LOAD SELURUH 500+ TICKER ISSI DARI FILE EXCEL SECARA AKURAT ---
+# --- 1. LOAD SELURUH 500+ TICKER ISSI DARI FILE EXCEL SECARA UTUH ---
 @st.cache_data
 def load_issi_from_excel():
   file_path = "SAHAM ISSI.xlsx"
+  tickers = []
   try:
     xls = pd.ExcelFile(file_path)
-    df_raw = pd.read_excel(file_path, sheet_name=xls.sheet_names[0])
+    for sheet in xls.sheet_names:
+      df_raw = pd.read_excel(file_path, sheet_name=sheet)
+      # Membaca seluruh kolom dan mengambil kode saham valid
+      for col in df_raw.columns:
+        for val in df_raw[col].dropna():
+          s_val = str(val).strip().upper()
+          if (
+              s_val
+              and s_val
+              not in ["KODE", "NO.", "NAMA", "UNNAMED: 0", "UNNAMED: 1", "NAN"]
+              and not s_val.isdigit()
+              and len(s_val) <= 6
+          ):
+            tickers.append(s_val)
+  except Exception as e:
+    st.error(f"Gagal memuat file Excel: {e}")
 
-    tickers = []
-    for col in df_raw.columns:
-      for val in df_raw[col].dropna():
-        s_val = str(val).strip().upper()
-        if (
-            len(s_val) == 4
-            and s_val.isalpha()
-            and s_val not in ["KODE", "NO.", "NAMA"]
-        ):
-          tickers.append(s_val)
-
-    # Fallback jika belum terekstraksi
-    if not tickers:
-      for val in df_raw.iloc[2:, 1].dropna():
-        s_val = str(val).strip().upper()
-        if s_val and s_val != "NAN" and len(s_val) <= 6:
-          tickers.append(s_val)
-
-    tickers = sorted(list(set(tickers)))
-    if not tickers:
-      tickers = ["ADRO", "ANTM", "PTBA", "INDF", "KLBF"]
-    return tickers
-  except Exception:
-    return ["ADRO", "ANTM", "PTBA", "INDF", "KLBF"]
+  tickers = sorted(list(set(tickers)))
+  if not tickers:
+    tickers = ["ADRO", "ANTM", "PTBA", "INDF", "KLBF", "ASII", "BBCA", "BMRI"]
+  return tickers
 
 
 tickers_list = load_issi_from_excel()
@@ -156,11 +175,11 @@ st.markdown("### 🎛️ Panel Kontrol & Pengaturan Screener")
 col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
 
 with col_ctrl1:
-  screener_mode = st.selectbox(
-      "🔍 Mode Tampilan & Filter:",
+  view_mode = st.selectbox(
+      "🔍 Mode Tampilan & Analisis:",
       [
-          "🔥 Hanya Sinyal Valid (Merah Reversal 6%+)",
-          "📋 Tampilkan Semua Saham ISSI (Market Watch)",
+          "🔥 Filter Sinyal Reversal Potensi 6%+",
+          "📋 Tampilkan Seluruh Daftar Saham ISSI (Market Watch)",
       ],
   )
 
@@ -203,7 +222,7 @@ with m2:
         <div class="metric-container">
             <div class="metric-label">Total Database ISSI</div>
             <div class="metric-value">{len(tickers_list)} Emiten</div>
-            <div class="metric-yellow">File Excel Aktif</div>
+            <div style="color: #38bdf8; font-size: 14px; font-weight: bold;">Terdaftar Penuh</div>
         </div>
     """,
       unsafe_allow_html=True,
@@ -215,7 +234,7 @@ with m3:
         <div class="metric-container">
             <div class="metric-label">Kriteria Utama</div>
             <div class="metric-value">Merah ➔ Hijau</div>
-            <div class="metric-yellow">Reversal Valid</div>
+            <div style="color: #34d399; font-size: 14px; font-weight: bold;">Reversal Valid</div>
         </div>
     """,
       unsafe_allow_html=True,
@@ -227,7 +246,7 @@ with m4:
         <div class="metric-container">
             <div class="metric-label">Target Minimum</div>
             <div class="metric-value">+{min_potensi}%</div>
-            <div class="metric-yellow">Potensi Pantulan</div>
+            <div style="color: #fde047; font-size: 14px; font-weight: bold;">Pantulan Target</div>
         </div>
     """,
       unsafe_allow_html=True,
@@ -279,7 +298,7 @@ def analyze_single_stock(t, min_target, strict_mode=True):
     )
 
     if strict_mode:
-      # Filter ketat: Merah hari ini ATAU intraday recovery + target tercapai
+      # Saringan ketat untuk mode Reversal
       if change_today >= 0:
         intraday_recovery = (c_today > o_today) and (
             (c_today - l_today) / l_today > 0.015
@@ -316,7 +335,8 @@ def analyze_single_stock(t, min_target, strict_mode=True):
 @st.cache_data(ttl=300)
 def scan_stocks_fast(tickers, min_target, strict_mode):
   results = []
-  with ThreadPoolExecutor(max_workers=15) as executor:
+  # Menggunakan multi-threading paralel agar pemindaian 579 saham selesai cepat
+  with ThreadPoolExecutor(max_workers=20) as executor:
     futures = {
         executor.submit(
             analyze_single_stock, t, min_target, strict_mode
@@ -334,12 +354,14 @@ def scan_stocks_fast(tickers, min_target, strict_mode):
 if "selected_emiten_target" not in st.session_state:
   st.session_state.selected_emiten_target = None
 
-is_strict = "Hanya Sinyal Valid" in screener_mode
+is_strict_mode = "Filter Sinyal Reversal" in view_mode
 
 with st.spinner(
-    f"Memindai {len(tickers_list)} emiten ISSI dari file Excel..."
+    f"Memindai seluruh {len(tickers_list)} emiten ISSI secara real-time..."
 ):
-  scanned_data = scan_stocks_fast(tuple(tickers_list), min_potensi, is_strict)
+  scanned_data = scan_stocks_fast(
+      tuple(tickers_list), min_potensi, is_strict_mode
+  )
 
 # --- 7. KOTAK REKOMENDASI INTERAKTIF (TOP SAHAM LAYAK BELI) ---
 st.markdown("### 🔥 Top Saham Layak Beli (Reversal Terkonfirmasi)")
@@ -353,7 +375,7 @@ if scanned_data:
           f"""
             <div class="recommendation-box">
                 <h4 style="color: #ffffff; margin: 0;">🎯 {rec['Emiten']}</h4>
-                <p style="color: #d1fae5; font-size: 13px; margin: 4px 0;">
+                <p style="color: #d1fae5; font-size: 13px; margin: 6px 0;">
                     <b>Harga:</b> Rp {rec['Harga (Rp)']}<br>
                     <b>Potensi:</b> <span style="color: #fde047; font-weight: bold;">{rec['Potensi Reversal']}</span><br>
                     <b>Alasan:</b> Koreksi sehat (RSI {rec['RSI (14)']}), didukung volume meningkat & pantulan support kuat.
@@ -369,8 +391,9 @@ if scanned_data:
         st.rerun()
 else:
   st.info(
-      "ℹ️ Belum ada emiten yang memenuhi saringan ketat saat ini. Coba"
-      " ganti mode ke 'Tampilkan Semua Saham ISSI'."
+      "ℹ️ Belum ada emiten yang memenuhi saringan ketat reversal saat ini."
+      " Ubah mode ke 'Tampilkan Seluruh Daftar Saham ISSI' untuk melihat"
+      " keseluruhan emiten."
   )
 
 st.markdown("---")
@@ -382,7 +405,7 @@ st.markdown(
 
 if scanned_data:
   df_display = pd.DataFrame(scanned_data).drop(columns=["RawChg"])
-  st.dataframe(df_display, use_container_width=True, height=400)
+  st.dataframe(df_display, use_container_width=True, height=420)
 
   st.markdown("---")
   st.markdown("### 📊 Detail & Grafik Analisis Emiten Terpilih")
@@ -404,7 +427,7 @@ if scanned_data:
     with col_chart1:
       chart_df = yf.download(
           f"{selected_emiten}.JK",
-          period="2mo",
+          period="3mo",
           interval="1d",
           progress=False,
           auto_adjust=False,
@@ -433,7 +456,7 @@ if scanned_data:
       st.markdown(
           f'<a href="{stockbit_url}" target="_blank"><button style="width:'
           ' 100%; background-color: #10b981; color: white; border: none; padding:'
-          ' 10px; border-radius: 6px; font-weight: bold; cursor: pointer;'
+          ' 10px; border-radius: 8px; font-weight: bold; cursor: pointer;'
           ' margin-top: 10px;">🚀 Buka Trade di Stockbit</button></a>',
           unsafe_allow_html=True,
       )
