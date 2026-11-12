@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import numpy as np
@@ -90,7 +91,7 @@ st.markdown(
 )
 
 
-# --- 1. LOAD DATA TICKER ISSI DARI FILE EXCEL ---
+# --- 1. LOAD SELURUH 500+ TICKER ISSI DARI FILE EXCEL SECARA AKURAT ---
 @st.cache_data
 def load_issi_from_excel():
   file_path = "SAHAM ISSI.xlsx"
@@ -99,16 +100,21 @@ def load_issi_from_excel():
     df_raw = pd.read_excel(file_path, sheet_name=xls.sheet_names[0])
 
     tickers = []
-    # Memindai seluruh sel di file Excel untuk mengambil kode saham yang valid
     for col in df_raw.columns:
       for val in df_raw[col].dropna():
         s_val = str(val).strip().upper()
         if (
-            len(s_val) <= 6
-            and s_val != "KODE"
-            and s_val != "NO."
-            and not s_val.isdigit()
+            len(s_val) == 4
+            and s_val.isalpha()
+            and s_val not in ["KODE", "NO.", "NAMA"]
         ):
+          tickers.append(s_val)
+
+    # Fallback jika belum terekstraksi
+    if not tickers:
+      for val in df_raw.iloc[2:, 1].dropna():
+        s_val = str(val).strip().upper()
+        if s_val and s_val != "NAN" and len(s_val) <= 6:
           tickers.append(s_val)
 
     tickers = sorted(list(set(tickers)))
@@ -150,12 +156,11 @@ st.markdown("### 🎛️ Panel Kontrol & Pengaturan Screener")
 col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
 
 with col_ctrl1:
-  screener_filter = st.selectbox(
-      "🔍 Filter Fokus Screener:",
+  screener_mode = st.selectbox(
+      "🔍 Mode Tampilan & Filter:",
       [
-          "🔥 Semua Saham Merah Potensi Reversal 6%+",
-          "📊 Hanya Sinyal Akumulasi Volume Tinggi",
-          "📉 Jenuh Jual Ekstrim (Oversold Bounce)",
+          "🔥 Hanya Sinyal Valid (Merah Reversal 6%+)",
+          "📋 Tampilkan Semua Saham ISSI (Market Watch)",
       ],
   )
 
@@ -196,9 +201,9 @@ with m2:
   st.markdown(
       f"""
         <div class="metric-container">
-            <div class="metric-label">Total Pantauan ISSI</div>
+            <div class="metric-label">Total Database ISSI</div>
             <div class="metric-value">{len(tickers_list)} Emiten</div>
-            <div class="metric-yellow">Sistem Aktif</div>
+            <div class="metric-yellow">File Excel Aktif</div>
         </div>
     """,
       unsafe_allow_html=True,
@@ -231,91 +236,97 @@ with m4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# --- 5. FUNGSI ANALISIS & SCREENING SAHAM ---
-@st.cache_data(ttl=300)
-def scan_red_to_green_stocks(tickers, min_target):
-  results = []
-  for t in tickers:
-    symbol = f"{t}.JK"
-    try:
-      df = yf.download(
-          symbol, period="3mo", interval="1d", progress=False, auto_adjust=False
-      )
-      if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+# --- 5. FUNGSI ANALISIS & SCREENING 500+ SAHAM ---
+def analyze_single_stock(t, min_target, strict_mode=True):
+  symbol = f"{t}.JK"
+  try:
+    df = yf.download(
+        symbol, period="3mo", interval="1d", progress=False, auto_adjust=False
+    )
+    if isinstance(df.columns, pd.MultiIndex):
+      df.columns = df.columns.get_level_values(0)
 
-      if df.empty or len(df) < 30:
-        continue
+    if df.empty or len(df) < 30:
+      return None
 
-      close_s = df["Close"]
-      open_s = df["Open"]
-      high_s = df["High"]
-      low_s = df["Low"]
-      vol_s = df["Volume"]
+    close_s = df["Close"]
+    open_s = df["Open"]
+    high_s = df["High"]
+    low_s = df["Low"]
+    vol_s = df["Volume"]
 
-      c_today = float(close_s.iloc[-1])
-      o_today = float(open_s.iloc[-1])
-      h_today = float(high_s.iloc[-1])
-      l_today = float(low_s.iloc[-1])
-      v_today = float(vol_s.iloc[-1])
+    c_today = float(close_s.iloc[-1])
+    o_today = float(open_s.iloc[-1])
+    h_today = float(high_s.iloc[-1])
+    l_today = float(low_s.iloc[-1])
+    v_today = float(vol_s.iloc[-1])
+    c_prev = float(close_s.iloc[-2])
 
-      c_prev = float(close_s.iloc[-2])
+    change_today = ((c_today - c_prev) / c_prev) * 100
 
-      change_today = ((c_today - c_prev) / c_prev) * 100
+    vol_sma5 = float(vol_s.rolling(window=5).mean().iloc[-1])
+    delta = close_s.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    rsi14 = float((100 - (100 / (1 + rs))).iloc[-1])
+
+    hist_volatility = (
+        (high_s - low_s) / close_s
+    ).rolling(window=14).mean().iloc[-1] * 100
+    est_reversal_target = max(
+        change_today * -1.2 + hist_volatility * 1.5, min_target
+    )
+
+    if strict_mode:
+      # Filter ketat: Merah hari ini ATAU intraday recovery + target tercapai
       if change_today >= 0:
         intraday_recovery = (c_today > o_today) and (
             (c_today - l_today) / l_today > 0.015
         )
         if not intraday_recovery:
-          continue
-      else:
-        intraday_recovery = (c_today > o_today) or (c_today >= l_today * 1.01)
-
-      vol_sma5 = float(vol_s.rolling(window=5).mean().iloc[-1])
-
-      delta = close_s.diff()
-      gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-      loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-      rs = gain / loss
-      rsi14 = float((100 - (100 / (1 + rs))).iloc[-1])
-      jenuh_jual = rsi14 <= 48
-
-      hist_volatility = (
-          (high_s - low_s) / close_s
-      ).rolling(window=14).mean().iloc[-1] * 100
-      est_reversal_target = max(
-          change_today * -1.2 + hist_volatility * 1.5, min_target
-      )
-
+          return None
       if est_reversal_target < min_target:
-        continue
+        return None
 
-      pivot = (h_today + l_today + c_today) / 3
-      support = (2 * pivot) - h_today
-      resistance = (2 * pivot) - l_today
-      target_besok = c_today * (1 + (min_target / 100))
+    pivot = (h_today + l_today + c_today) / 3
+    support = (2 * pivot) - h_today
+    target_besok = c_today * (1 + (min_target / 100))
 
-      results.append({
-          "Emiten": t,
-          "Harga (Rp)": f"{c_today:,.0f}",
-          "Chg Hari Ini": f"{change_today:+.2f}%",
-          "RSI (14)": round(rsi14, 1),
-          "Vol vs Avg5": f"{(v_today/vol_sma5):.2f}x"
-          if vol_sma5 > 0
-          else "1.0x",
-          "Support": f"{support:,.0f}",
-          "Target Besok (+6%+)": f"{target_besok:,.0f}",
-          "Potensi Reversal": f"+{est_reversal_target:.1f}%",
-          "Analisis Pola": (
-              "Merah Jenuh Jual & Pantulan Valid"
-              if jenuh_jual
-              else "Intraday Recovery Kuat"
-          ),
-          "RawChg": change_today,
-      })
-    except Exception:
-      continue
+    return {
+        "Emiten": t,
+        "Harga (Rp)": f"{c_today:,.0f}",
+        "Chg Hari Ini": f"{change_today:+.2f}%",
+        "RSI (14)": round(rsi14, 1),
+        "Vol vs Avg5": f"{(v_today/vol_sma5):.2f}x" if vol_sma5 > 0 else "1.0x",
+        "Support": f"{support:,.0f}",
+        "Target Besok": f"{target_besok:,.0f}",
+        "Potensi Reversal": f"+{est_reversal_target:.1f}%",
+        "Analisis Pola": (
+            "Merah Jenuh Jual & Pantulan Valid"
+            if change_today < 0
+            else "Intraday Recovery Kuat"
+        ),
+        "RawChg": change_today,
+    }
+  except Exception:
+    return None
 
+
+@st.cache_data(ttl=300)
+def scan_stocks_fast(tickers, min_target, strict_mode):
+  results = []
+  with ThreadPoolExecutor(max_workers=15) as executor:
+    futures = {
+        executor.submit(
+            analyze_single_stock, t, min_target, strict_mode
+        ): t
+        for t in tickers
+    }
+    for future in as_completed(futures):
+      res = future.result()
+      if res is not None:
+        results.append(res)
   return sorted(results, key=lambda x: x["RawChg"])
 
 
@@ -323,13 +334,14 @@ def scan_red_to_green_stocks(tickers, min_target):
 if "selected_emiten_target" not in st.session_state:
   st.session_state.selected_emiten_target = None
 
-with st.spinner(
-    "Menganalisis seluruh emiten ISSI real-time & mendeteksi pola volume"
-    " valid..."
-):
-  scanned_data = scan_red_to_green_stocks(tickers_list, min_potensi)
+is_strict = "Hanya Sinyal Valid" in screener_mode
 
-# --- 7. KOTAK REKOMENDASI INTERAKTIF (SAHAM LAYAK BELI) ---
+with st.spinner(
+    f"Memindai {len(tickers_list)} emiten ISSI dari file Excel..."
+):
+  scanned_data = scan_stocks_fast(tuple(tickers_list), min_potensi, is_strict)
+
+# --- 7. KOTAK REKOMENDASI INTERAKTIF (TOP SAHAM LAYAK BELI) ---
 st.markdown("### 🔥 Top Saham Layak Beli (Reversal Terkonfirmasi)")
 if scanned_data:
   top_recoms = scanned_data[:3]
@@ -357,14 +369,16 @@ if scanned_data:
         st.rerun()
 else:
   st.info(
-      "ℹ️ Belum ada emiten ISSI yang mencetak skor rekomendasi tertinggi"
-      " saat ini."
+      "ℹ️ Belum ada emiten yang memenuhi saringan ketat saat ini. Coba"
+      " ganti mode ke 'Tampilkan Semua Saham ISSI'."
   )
 
 st.markdown("---")
 
 # --- 8. TAMPILAN TABEL HASIL SCREENER ---
-st.markdown("### 📋 Daftar Lengkap Saham ISSI: Koreksi Merah Hari Ini")
+st.markdown(
+    f"### 📋 Daftar Saham ISSI ({len(scanned_data)} Emiten Ditampilkan)"
+)
 
 if scanned_data:
   df_display = pd.DataFrame(scanned_data).drop(columns=["RawChg"])
@@ -424,8 +438,4 @@ if scanned_data:
           unsafe_allow_html=True,
       )
 else:
-  st.warning(
-      "⚠️ Belum ada saham ISSI yang memenuhi kriteria ketat 'Merah Hari Ini"
-      " dengan Potensi Reversal Minimal 6%' saat ini. Coba sesuaikan filter"
-      " target minimal atau lakukan *Refresh* beberapa saat lagi."
-  )
+  st.warning("⚠️ Tidak ada data emiten yang ditemukan.")
